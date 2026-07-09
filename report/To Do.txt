@@ -1,0 +1,44 @@
+What to record — exact sequence:
+Part 1 — App Walkthrough (2 min)
+- Show login page
+- Register a new account — show password strength meter
+- Login — show dashboard
+- Browse events
+- Buy a ticket — show Stripe checkout
+- View order confirmation
+- View ticket with QR code
+- Show profile page with MFA toggle
+- Enable MFA — show it works
+- Logout and login again — show OTP email flow
+
+Part 2 — Vulnerability Demos (4 min)
+Vuln 1 — IDOR on Orders:
+1. Open Burp Suite — set browser proxy to 127.0.0.1:8080
+2. Login as User A
+3. Go to your own order — note the URL /orders/X
+4. In Burp intercept — change X to User B's order ID
+5. Show User B's order data loading
+6. Screenshot this
+Vuln 2 — IDOR on Tickets:
+1. Still as User A
+2. Go to /tickets/Y where Y is User B's ticket ID
+3. Show User B's ticket and QR code loading
+4. Screenshot this
+Vuln 3 — IDOR on Event Edit:
+1. Login as User A (regular user, not organizer)
+2. Go to /events/1/edit directly in the URL bar
+3. Show the edit form loads — User A can edit any event
+4. Change the title to something obvious like "HACKED"
+5. Show it saves successfully
+6. Screenshot this
+Vuln 4 — XSS (bonus — easy to demo):
+1. Login as organizer
+2. Create a new event
+3. In the description field type:
+   <script>alert('XSS')</script>
+4. Submit and view the event
+5. If alert fires — screenshot it
+6. If it doesn't fire (React escapes by default) — 
+   still document it was attempted and React's 
+   JSX escaping prevented it — that's actually 
+   your remediation story for free

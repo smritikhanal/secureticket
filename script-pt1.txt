@@ -1,0 +1,275 @@
+Full Video Script — Parts 1 & 2
+Before hitting record — checklist:
+
+- Two browser profiles ready (User A + User B logged in separately)
+- Burp Suite open, proxy set to 127.0.0.1:8080
+- Limited Event exists with 1 ticket
+- Test Event exists with 100 tickets
+- OBS recording at 1080p
+- php artisan serve running
+- npm run dev running
+
+PART 1 — App Walkthrough
+
+[Showing screen: localhost:8000/register]
+
+"Let's start with registration. I'm going to create a new account and the first thing you'll notice is the live password strength meter powered by zxcvbn."
+
+[Type a weak password like 'password123']
+
+"Typing something weak — the meter immediately flags it as Very Weak. The application won't accept this."
+
+[Type a strong password like 'MySecure@Pass123!']
+
+"Now with a proper password meeting all requirements — 12 characters minimum, uppercase, lowercase, number, symbol — the meter turns strong. This gives users real-time feedback instead of just rejecting them after submission."
+
+[Submit the form]
+
+"Account created. Let's log in."
+
+[Showing screen: localhost:8000/login]
+
+"Standard login page. Let me demonstrate the brute force protection quickly."
+
+[Enter wrong password 5 times]
+
+"After 5 failed attempts the account gets locked for 30 minutes. Every failed attempt is also logged with the IP address and timestamp — visible in the admin panel which we'll see shortly."
+
+[Login with correct credentials]
+
+"Logging in successfully now."
+
+[Showing screen: Dashboard]
+
+"The dashboard is role-aware. This is a regular user account so they only see Browse Events, My Tickets, and Profile. An organizer would also see Manage Events. An admin sees everything including the admin panel. Role-based access control enforced at both the middleware and UI level."
+
+[Showing screen: localhost:8000/events]
+
+"Browsing the public events listing. Any visitor can see events — no login required. But purchasing requires authentication."
+
+[Click Test Event]
+
+"Opening the event detail page. We can see venue, date, availability, and price. Let's buy a ticket."
+
+[Select quantity 1, click Buy Tickets]
+
+"Redirected to the checkout page. Payment is handled by Stripe — card details never touch our server, they go directly to Stripe's API."
+
+[Enter test card: 4242 4242 4242 4242, 12/29, 123, 12345]
+
+"Using Stripe's test card. In a real environment this would be a customer's actual card."
+
+[Click Pay Now]
+
+"Payment confirmed."
+
+[Showing screen: Order confirmation page]
+
+"Order confirmation showing event details, quantity, and total paid. Each order gets a unique ID — and this ID is exactly what we'll be exploiting in a moment."
+
+[Click through to ticket]
+
+"And here's the ticket — with a real scannable QR code generated server-side. Each ticket has a unique UUID tied to the order and the user."
+
+[Showing screen: Profile page]
+
+"Let's look at the security profile page. Users can update their name and email, change their password — which enforces the same 12-character policy and checks against the last 5 previously used passwords to prevent reuse."
+
+[Click Enable MFA]
+
+"Enabling Multi-Factor Authentication. This is optional for users but the system is designed to enforce it for admin and organizer roles in future."
+
+[Logout]
+
+"Logging out and back in to show the MFA flow."
+
+[Showing screen: Login page]
+
+[Enter credentials and submit]
+
+"After correct credentials, the system detects MFA is enabled and instead of logging in directly — it sends a 6-digit OTP to the registered email."
+
+[Showing screen: MFA verify page]
+
+"The OTP verify page. The code expires in 5 minutes. Let me grab it from the email."
+
+[Enter OTP code]
+
+"Code accepted — fully authenticated. Now let's look at the admin panel briefly before moving into the vulnerability demonstrations."
+
+[Showing screen: Admin panel — login as admin]
+
+"The admin panel shows platform statistics — total users, events, orders, revenue. More importantly — the activity log."
+
+[Click Activity Logs]
+
+"Every significant action is logged — logins, failed logins, registrations, purchases — with user, IP address, timestamp, and metadata. This is critical for detecting attacks. Watch this log carefully during the next section — you'll see the attack attempts appear here in real time."
+PART 2 — Vulnerability Demonstrations
+Vulnerability 1 — IDOR on Orders
+
+[Showing screen: Burp Suite — Proxy tab, intercept off]
+
+"Moving into the penetration testing phase. I'm using Burp Suite Community Edition — the industry standard for web application security testing. The browser is proxied through Burp so I can intercept and modify every request."
+
+[Showing screen: Browser — logged in as User A, own order page /orders/3]
+
+"I'm logged in as User A. I've just purchased a ticket and I'm viewing my own order at /orders/3. This is legitimate access — my order, my data."
+
+[Showing screen: Burp Suite — turn Intercept ON]
+
+"Now I'm going to turn on Burp's intercept and manually navigate to the orders endpoint."
+
+[Showing screen: Browser — type /orders/2 in URL bar]
+
+"I'm changing the order ID from 3 to 2 — which belongs to User B. This is a completely different user's private order."
+
+[Showing screen: Burp Suite — intercepted GET /orders/2 request]
+
+"Burp has captured the request. I can see it's a GET request to /orders/2. No ownership verification is happening server-side. Let me forward it."
+
+[Showing screen: Browser — User B's order data displayed]
+
+"And there it is. I'm logged in as User A and I'm viewing User B's complete order — their event, their purchase amount, their ticket IDs. This is a critical IDOR vulnerability. The application trusted the ID in the URL without checking whether the logged-in user actually owns that order."
+
+[Take screenshot]
+
+[Showing screen: Admin logs]
+
+"And notice in the admin activity log — this access attempt has been recorded. The system logged it but couldn't prevent it. That's the problem we'll fix."
+Vulnerability 2 — IDOR on Tickets
+
+[Showing screen: Browser — still logged in as User A]
+
+"Same class of vulnerability exists on the tickets endpoint. I don't need Burp for this one — I can exploit it directly from the browser."
+
+[Showing screen: Browser — type /tickets/2 in URL bar]
+
+"Navigating directly to ticket ID 2 — which belongs to User B."
+
+[Showing screen: User B's ticket with QR code]
+
+"User B's ticket loads completely — including their QR code. An attacker could screenshot this QR code and use it to enter the event, effectively stealing User B's ticket. High severity."
+
+[Take screenshot]
+Vulnerability 3 — IDOR on Event Edit
+
+[Showing screen: Browser — logged in as User A, regular user role]
+
+"This one demonstrates a privilege escalation through IDOR. User A is a regular user — no organizer role, no permission to manage events whatsoever."
+
+[Showing screen: Browser — type /events/1/edit in URL bar]
+
+"I'm going to directly navigate to the edit page for Event ID 1 — which belongs to a completely different organizer."
+
+[Showing screen: Event edit form loads successfully]
+
+"The edit form loads with no access check. User A — a regular user — is now looking at a form to edit someone else's event. Let me demonstrate this is fully functional and not just a cosmetic issue."
+
+[Change event title to 'HACKED BY USER A']
+
+[Click Save Changes]
+
+[Showing screen: Event page showing updated title]
+
+"The title has been changed. A regular user with no organizer privileges just modified another organizer's event. This could be used to cancel events, change venues, alter prices — serious business impact."
+
+[Take screenshot]
+Vulnerability 4 — XSS Attempt
+
+[Showing screen: Browser — logged in as organizer, Create Event page]
+
+"Now testing for Cross-Site Scripting. I'm going to attempt to inject a script tag into the event description field."
+
+[Type in description field:]
+
+<script>alert('XSS')</script>
+
+[Submit the form]
+
+[Showing screen: Event detail page]
+
+"Navigating to the event page to see if the script executes."
+
+If alert fires:
+
+"The script executed — confirmed stored XSS vulnerability. Any user viewing this event page would have this script run in their browser. An attacker could use this to steal session cookies, redirect users, or perform actions on their behalf."
+
+If alert does not fire:
+
+"The script did not execute — React's JSX rendering automatically escapes HTML entities, converting the script tag to plain text. This is a framework-level security control working correctly. However this should be noted — if any part of the application used dangerouslySetInnerHTML, this would be exploitable. We verified no such usage exists in our codebase."
+
+[Take screenshot either way]
+Vulnerability 5 — Business Logic Flaw (Race Condition)
+
+[Showing screen: Limited Event page — 1 ticket available]
+
+"The fifth and final vulnerability is a business logic flaw — specifically a race condition in the ticket purchasing flow. This is more sophisticated than the previous vulnerabilities and demonstrates a class of bug that automated scanners typically miss entirely."
+
+[Showing screen: OrderController.php — the vulnerable code]
+
+"Looking at the source code — the application checks ticket availability here, then creates the order and decrements the counter here. Between these two operations there is a window — however small — where two simultaneous requests can both pass the availability check before either one decrements the counter."
+php
+
+// Check happens here — both requests pass this
+if ($event->availableTickets() < $request->quantity) {
+    return back()->withErrors([...]);
+}
+
+// Window of vulnerability — race condition lives here
+
+// Decrement happens here — both requests reach this
+$event->increment('tickets_sold', $quantity);
+
+[Showing screen: Terminal]
+
+"I'm going to simulate two simultaneous purchase requests using curl — firing them at exactly the same time."
+bash
+
+curl -X POST http://127.0.0.1:8000/orders/checkout \
+  -H "Content-Type: application/json" \
+  -b "laravel_session=YOUR_SESSION" \
+  -d '{"event_id":2,"quantity":1}' &
+
+curl -X POST http://127.0.0.1:8000/orders/checkout \
+  -H "Content-Type: application/json" \
+  -b "laravel_session=YOUR_SESSION" \
+  -d '{"event_id":2,"quantity":1}' &
+
+wait
+
+[Showing screen: Database result in tinker]
+bash
+
+php artisan tinker
+
+php
+
+$event = App\Models\Event::find(2);
+echo "Total tickets: " . $event->total_tickets;
+echo "Tickets sold: " . $event->tickets_sold;
+echo "Tickets generated: " . App\Models\Ticket::where('event_id', 2)->count();
+
+"Total tickets: 1. Tickets sold: 2. Two tickets generated for a one-ticket event. The race condition allowed both requests to succeed — the event is now oversold. This is a direct financial and operational impact."
+
+[Take screenshot of the database output]
+
+[Showing screen: Admin activity logs]
+
+"And both purchases appear in the activity log — two completed orders for the same single-ticket event. The logging captured the attack but the application logic failed to prevent it."
+
+[Take screenshot]
+End of Part 2
+
+[Showing screen: Summary slide or just terminal]
+
+"To summarise — five vulnerabilities discovered during internal penetration testing:
+
+One — IDOR on orders endpoint allowing any user to view any order.
+Two — IDOR on tickets endpoint allowing ticket theft via QR code access.
+Three — IDOR on event edit allowing privilege escalation by regular users.
+Four — XSS attempt — either confirmed or mitigated by React's escaping.
+Five — Business logic race condition allowing event overselling.
+
+All five will now be remediated and retested. The fixes and retest evidence follow in the next section."
+
+[Stop recording]

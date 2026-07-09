@@ -1,0 +1,7 @@
+Progress check — where we are:
+✅ Security headers + CSP
+✅ Session config
+✅ Password history enforcement
+✅ Admin panel
+✅ Stripe payments
+✅ QR code rendering
